@@ -27,7 +27,7 @@ from autopilot_korea.agents.scenario import ScenarioResult, run_scenarios
 from autopilot_korea.agents.screener import ScreenedStock, run_screening, score_one
 from autopilot_korea.compliance import with_disclaimer
 from autopilot_korea.db import Database
-from autopilot_korea.db.models import NavHistory, PipelineRun, PriceData, ScreeningResult, StockMaster, utcnow
+from autopilot_korea.db.models import NavHistory, Order, PipelineRun, PriceData, ScreeningResult, StockMaster, utcnow
 from autopilot_korea.execution import make_broker
 from autopilot_korea.execution.base import AccountSnapshot, Broker
 from autopilot_korea.execution.calendar import TradingCalendar
@@ -266,14 +266,18 @@ class Orchestrator:
                     flags[t] = sorted(set(flags.get(t, [])) | {"규제상태_조회실패"})
                 log.warning("규제 상태 조회 실패 %s: %s", t, exc)
         pre_execution_gate(plan.orders, self.settings, flags)
+        superseded = self.orders.supersede_pending(ctx.run_id)
         ids = self.orders.propose(ctx.run_id, plan.orders)
-        approved = self.orders.auto_approve(ctx.run_id)
-        submitted = self.orders.submit_approved(ctx.as_of) if self.settings.mode == "paper" else {}
+        approved = self.orders.auto_approve(ctx.run_id, account.total_value)
+        # paper는 바로 체결된다. live는 장 시간이면 바로, 아니면 09:05 주문 제출 작업이 낸다.
+        submitted = self.orders.submit_approved(ctx.as_of) if self.settings.mode in ("paper", "live") else {}
         self.update_journal(ctx, plan, account, target)
+        with self.db.session() as s:
+            awaiting = s.scalars(select(Order).where(Order.run_id == ctx.run_id, Order.status == "proposed")).all()
         return {"orders": len(ids), "blocked": sum(1 for o in plan.orders if o.blocked_reason),
-                "auto_approved": approved, "submitted": submitted, "turnover": round(plan.turnover, 4),
-                "turnover_scale": round(plan.turnover_scale, 4), "notes": plan.notes,
-                "awaiting_human_approval": self.settings.mode == "live" or approved < len(ids)}
+                "superseded_previous": superseded, "auto_approved": approved, "submitted": submitted,
+                "turnover": round(plan.turnover, 4), "turnover_scale": round(plan.turnover_scale, 4), "notes": plan.notes,
+                "halted": self.settings.halted(), "awaiting_human_approval": len(awaiting) > 0}
 
     def update_journal(self, ctx: PipelineContext, plan: RebalancePlan, account: AccountSnapshot, target: TargetPortfolio) -> None:
         """반증 가능한 서면 thesis를 신규 편입 시 열고, 전량 편출 시 닫는다 (§8-1)."""

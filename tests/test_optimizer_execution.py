@@ -259,3 +259,87 @@ def test_dept_flags_and_index_approximation_excludes_managed():
     listing = pd.DataFrame({"ticker": ["100010", "100020", "100030"], "name": ["가", "나", "다"], "market": ["KOSDAQ"] * 3,
                             "market_cap": [3e12, 2e12, 1e12], "dept": ["관리종목(소속부없음)", "우량기업부", "벤처기업부"]})
     assert top_by_market_cap(listing, "KOSDAQ", 2) == ["100020", "100030"]
+
+
+# ── live 완전 자동 매매의 안전장치 ─────────────────────────────────────
+
+def _live_settings(settings, **execution):
+    rules = settings.constraints.model_copy(deep=True)
+    for k, v in execution.items():
+        setattr(rules.execution, k, v)
+    return dataclasses.replace(settings, mode="live", toss_app_key="k", toss_app_secret="s", constraints=rules)
+
+
+class QuoteBroker(PaperBroker):
+    def __init__(self, settings, db, quote):
+        super().__init__(settings, db, lambda t: 10_000.0)
+        self.quote = quote
+
+    def best_quote(self, ticker):
+        return self.quote
+
+
+def test_market_hours():
+    from autopilot_korea.execution.calendar import KST
+
+    cal = TradingCalendar({date(2026, 12, 25)})
+    at = lambda *a: datetime(*a, tzinfo=KST)  # noqa: E731
+    assert cal.is_market_open(at(2026, 11, 12, 9, 5)) and cal.is_market_open(at(2026, 11, 12, 15, 19))
+    assert not cal.is_market_open(at(2026, 11, 12, 7, 30)) and not cal.is_market_open(at(2026, 11, 12, 15, 20))
+    assert not cal.is_market_open(at(2026, 11, 14, 10, 0))  # 토요일
+    assert not cal.is_market_open(at(2026, 12, 25, 10, 0))  # 휴장일
+
+
+def test_kill_switch_stops_auto_approval_and_submission(settings, db):
+    live = _live_settings(settings)
+    om = OrderManager(live, db, PaperBroker(live, db, lambda t: 10_000.0), TradingCalendar())
+    om.propose("r1", [PlannedOrder("000001", "BUY", 10, "LIMIT", 10_000, "목표")])
+    live.halt_file.parent.mkdir(parents=True, exist_ok=True)
+    live.halt_file.write_text("test")
+    assert om.auto_approve("r1", nav=50_000_000) == 0
+    assert om.submit_approved(date(2026, 11, 12)) == {"submitted": 0, "halted": 1}
+    live.halt_file.unlink()
+    assert om.auto_approve("r1", nav=50_000_000) == 1
+
+
+def test_live_gate_routes_unusual_batches_to_human(settings, db):
+    live = _live_settings(settings, live_auto_max_orders=1)
+    om = OrderManager(live, db, PaperBroker(live, db, lambda t: 10_000.0), TradingCalendar())
+    om.propose("r1", [PlannedOrder("000001", "BUY", 10, "LIMIT", 10_000, "목표"),
+                      PlannedOrder("000002", "BUY", 10, "LIMIT", 10_000, "목표")])
+    assert om.auto_approve("r1", nav=50_000_000) == 0
+    with db.session() as s:
+        rows = s.scalars(select(Order)).all()
+        assert all(o.needs_review and o.status == "proposed" and "사람 검토" in o.error for o in rows)
+    live2 = _live_settings(settings)
+    om2 = OrderManager(live2, db, PaperBroker(live2, db, lambda t: 10_000.0), TradingCalendar())
+    om2.propose("r2", [PlannedOrder("000003", "BUY", 6_000, "LIMIT", 10_000, "목표")])  # 6천만 원 > 평가액의 110%
+    assert om2.auto_approve("r2", nav=50_000_000) == 0
+
+
+def test_live_reprice_within_cap(settings, db):
+    from autopilot_korea.execution.calendar import KST
+
+    open_time = datetime(2026, 11, 12, 9, 5, tzinfo=KST)
+    live = _live_settings(settings)
+    om = OrderManager(live, db, QuoteBroker(live, db, {"ask": 10_090, "bid": 10_000}), TradingCalendar())
+    ids = om.propose("r1", [PlannedOrder("000001", "BUY", 100, "LIMIT", 10_050, "목표")])
+    om.auto_approve("r1", nav=50_000_000)
+    om.submit_approved(date(2026, 11, 12), now=open_time)
+    with db.session() as s:
+        o = s.get(Order, ids[0])
+        assert (o.price_limit, o.quantity) == (10_090, 99)  # 매도호가 10,090(10원 단위), 계획 금액 안으로 수량 99주
+    om2 = OrderManager(live, db, QuoteBroker(live, db, {"ask": 10_500}), TradingCalendar())
+    ids2 = om2.propose("r2", [PlannedOrder("000002", "BUY", 100, "LIMIT", 10_050, "목표")])
+    om2.auto_approve("r2", nav=50_000_000)
+    om2.submit_approved(date(2026, 11, 12), now=open_time)
+    with db.session() as s:
+        assert s.get(Order, ids2[0]).price_limit == 10_050  # 허용 폭(1%)을 넘는 상승은 추격하지 않는다
+
+
+def test_new_plan_supersedes_unsubmitted_orders(settings, db):
+    om = OrderManager(settings, db, PaperBroker(settings, db, lambda t: 10_000.0), TradingCalendar())
+    old = om.propose("r1", [PlannedOrder("000001", "BUY", 10, "LIMIT", 10_000, "목표")])
+    assert om.supersede_pending("r2") == 1
+    with db.session() as s:
+        assert s.get(Order, old[0]).status == "superseded"

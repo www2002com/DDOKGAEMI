@@ -103,3 +103,6 @@ def test_beat_schedule_matches_cadence():
     assert sched["dart-monitor"]["schedule"].kw["minute"] == "*/30"
     assert sched["collect-quarterly-on-filing"]["task"] == "autopilot.collect_on_filing"
     assert {"stale-orders", "nav-snapshot", "sentiment-radar", "macro-outlook"} <= set(sched)
+    # live 자동 매매: 장 시작 직후 승인된 주문을 제출한다
+    assert sched["order-submit"]["task"] == "autopilot.sync_orders"
+    assert sched["order-submit"]["schedule"].kw == {"minute": "5", "hour": "9", "day_of_week": "1,2,3,4,5"}

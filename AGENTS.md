@@ -46,7 +46,7 @@ Stage 1 스크리닝(`agents/screener.py`) → Stage 2 적대적 리서치 30 �
 4. **포트폴리오 제약은 코드와 프롬프트로 이중 강제한다.** 섹터 ≤ 35%, 종목 ≤ 10%, 15 포지션, 현금성 ETF ≤ 20%, 모든 포지션 기대수익 > 0. 값은 `config/constraints.yaml` 한 곳에만 둔다. 프롬프트 문구(`prompts.task_optimizer`)와 검증(`optimizer.validate`)이 이 값을 함께 읽는다.
 5. **최근 7일 뉴스만 새 정보다.** 그 이전 정보는 가격에 반영되었다고 본다. Stage 2 근거(evidence)는 코드에서도 7일 창으로 다시 거른다.
 6. **데이터 수집은 `src/autopilot_korea/collectors/`의 콜렉터가 맡는다.** 97개 변수의 번호·정의·원천은 `variables.py` 레지스트리가 기준이다. 팩트시트는 `as_of` 이전 데이터와 그 이전에 접수된 공시만 쓴다 (백테스트 룩어헤드 차단).
-7. **live 모드 주문은 사람이 승인한다.** 토스증권에는 모의투자 환경이 없어 모든 주문이 실주문이다. `OrderManager.auto_approve`는 설정과 무관하게 live에서 자동 승인하지 않는다. 이 동작을 바꾸는 변경은 사용자 확인 없이 하지 않는다.
+7. **live 모드는 완전 자동 매매다 (2026-11-13 사용자 결정).** 토스증권에는 모의투자 환경이 없어 모든 주문이 실주문이다. 그래서 자동 매매는 다음 안전장치 안에서만 동작한다: 실행 1회의 주문 수·총액 점검 한도(넘으면 사람 검토), 정규장 시간에만 제출, 제출 시 지정가 재조정 허용 폭, 새 계획이 이전 미제출 주문을 대체, 비상 정지(`autopilot halt`). 사람 승인으로 되돌리려면 `config/constraints.yaml`의 `auto_approve_modes`에서 live를 뺀다. 이 안전장치를 줄이거나 없애는 변경은 사용자 확인 없이 하지 않는다. 이유: 사람 감독 없이 실제 돈이 움직인다.
 8. **SELF_MODIFY 토글은 연구 모드 전용이다.** paper·live 모드에서 켜면 시스템이 시작을 거부한다 (`Settings.validate`).
 
 ## 데이터 (97개 변수)
@@ -57,4 +57,6 @@ KRX 시세(pykrx — KRX 로그인 필요, 대체: FinanceDataReader), DART Open
 - 환경: `uv venv .venv && source .venv/bin/activate && uv pip install -e ".[data,scheduler,dev]"`
 - 테스트: `pytest` (네트워크 없이 돈다). 실제 원천 점검은 `AUTOPILOT_LIVE_TESTS=1 pytest -m live`.
 - 운영 모드는 `.env`의 `AUTOPILOT_MODE`(dry_run → paper → live 순서로 올린다).
-- 운영 흐름: `autopilot collect` → `autopilot run` → `data/reports/<run_id>.md` 확인 → `autopilot orders approve --run <run_id> --by <이름>`.
+- 운영 흐름(자동): 스케줄러가 수집 → 월·목 07:30 파이프라인 → 자동 승인 → 09:05 제출 → 15:40 체결 동기화·미체결 취소를 한다. 결과는 `data/reports/<run_id>.md`.
+- 운영 흐름(수동 승인): `auto_approve_modes`에서 live를 빼면 `autopilot orders approve --run <run_id> --by <이름>`으로 승인한다.
+- 비상 정지: `autopilot halt` / 해제: `autopilot resume`.

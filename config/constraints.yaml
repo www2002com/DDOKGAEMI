@@ -36,8 +36,17 @@ risk:
     - 규제상태_조회실패                   # live에서 토스증권 규제 상태를 확인하지 못하면 매수하지 않는다
 
 execution:
-  # 사람 승인 없이 자동 승인할 모드. live는 이 값과 무관하게 코드가 항상 사람 승인을 요구한다 (§3.2 "인간이 최종 서명").
-  auto_approve_modes: [paper]
+  # 사람 승인 없이 자동 승인할 모드. live를 넣으면 실계좌도 완전 자동 매매한다 (2026-11-13 사용자 결정).
+  # 사람 승인으로 되돌리려면 목록에서 live를 빼거나, 즉시 멈추려면 `autopilot halt`를 실행한다.
+  auto_approve_modes: [paper, live]
+  # live 자동 승인 점검: 한 번의 실행에서 주문 수나 총 주문 금액이 이 값을 넘으면 자동 승인하지 않고 사람 검토로 넘긴다.
+  live_auto_max_orders: 40
+  live_auto_max_gross_pct: 1.1      # 매수+매도 주문 총액 ÷ 계좌 평가액
+  # live 제출 시 현재 호가로 지정가를 다시 맞추는 최대 폭. 계획가보다 이만큼 넘게 불리하면 계획가를 유지한다(추격 매매 방지).
+  live_reprice_max_pct: 0.01
+  # live 주문 제출 시간(한국 시간, 거래일). 종가 단일가 접수 구간(15:20~15:30) 전까지만 낸다.
+  market_open: "09:00"
+  market_close: "15:20"
   default_order_type: LIMIT
   limit_offset_pct: 0.003           # 호가가 없을 때 종가 대비 지정가 여유 (매수 +, 매도 −)
   min_trade_value_krw: 300000       # 이보다 작은 리밸런싱 거래는 만들지 않는다 (잦은 소액 거래 방지)

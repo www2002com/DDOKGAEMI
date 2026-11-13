@@ -20,7 +20,7 @@
 | §3.2 S3 | 확률 가중 시나리오, 1·3·6·12개월 목표, 과낙관 방지 | `agents/scenario.py` (`optimism_review` + 확률 정규화 + 기대수익 재계산 + 컨센서스 1.5배 초과 플래그) | 같은 테스트 |
 | §3.2 S4 | Agent of agents, 섹터 35%, 기대수익 > 0, KOSPI200 초과 | `agents/optimizer.py` (`task_optimizer` 프롬프트 + `validate` 코드) | `test_validate_catches_each_constraint` |
 | §3.2 S5 | 상시 리밸런싱, 근거와 함께 스왑 | `agents/rebalancer.py`, 오케스트레이터 검토(`RebalanceReview`) | `test_swap_rule_*`, `test_second_run_trades_less` |
-| §3.2 인간 역할 | 포지션 한도·회전율 한도·반증 가능한 thesis·인간 최종 서명 | `constraints.yaml`, `TargetPosition.falsification`, `thesis_journal`, `OrderManager.approve` | `test_live_mode_never_auto_approves` |
+| §3.2 인간 역할 | 포지션 한도·회전율 한도·반증 가능한 thesis·인간 최종 서명 | `constraints.yaml`, `TargetPosition.falsification`, `thesis_journal`. 최종 서명은 사용자 결정으로 자동 승인 + 안전장치로 대체(아래 차이점 22). 수동 승인 방식은 설정으로 유지 | `test_live_mode_auto_trades_at_market_open`, `test_live_mode_requires_human_when_live_not_listed`, `test_live_gate_routes_unusual_batches_to_human`, `test_kill_switch_stops_auto_approval_and_submission` |
 | §3.3 | 한국형 5단계 상세 (저장 테이블 포함) | `screening_results`(S1·S2), `adversarial_opinions`, `scenario_models`, `portfolio_positions` | `test_full_pipeline_paper_mode` |
 | §3.3 S5 이벤트 | DART 주요사항보고 감지 시 즉시 재스코어링 | `agents/dart_monitor.py`, `Orchestrator.rescore` | — |
 | §3.4 | 중앙값 집계, 확률 가중 기대수익, 재생성 최대 3회, 스왑 10점 | `adversarial.aggregate`, `scenario.expected_return`, `optimizer.optimize`, `rebalancer.apply_swap_rule` | `test_full_pipeline_paper_mode`(재생성), `test_swap_rule_keeps_holding_within_gap` |
@@ -70,3 +70,4 @@
 19. **직전 배당(#64, #65).** 현금·현물배당결정 공시를 해석하지 못하면 비워 둡니다. 분기배당 기업에서 연간 배당금으로 대신 채우면 틀린 값이 되기 때문입니다.
 20. **EBITDA(#61, #75, #89).** DART 현금흐름표에서 감가상각비를 따로 공시하지 않는 기업이 많아 자주 missing입니다. 지어내지 않고 missing으로 둡니다.
 21. **키 없이 채워지는 변수.** DART 키와 KRX 로그인 없이 실데이터로 점검했을 때 97개 중 36개가 채워졌습니다(시세·모멘텀·컨센서스·밸류에이션 일부). DART 키를 넣으면 재무·배당·지배구조(B·C·G·H·J)가, KRX 로그인을 넣으면 공매도(E 일부)가 채워집니다. 비어 있는 변수는 팩트시트에 `missing`으로 표시되어 에이전트가 판단에서 무게를 줄입니다.
+22. **live 완전 자동 매매 (2026-11-13 사용자 결정).** 설계안 §3.2의 "인간이 최종 서명"을 사용자 결정에 따라 자동 승인으로 바꿨습니다. 사람 감독 없이 실제 돈이 움직이므로 안전장치를 더했습니다: 실행 1회 주문 수(40건)·총액(평가액의 110%) 점검 한도를 넘으면 사람 검토, 정규장 시간(09:00~15:20)에만 제출, 제출 시 현재 호가로 지정가 재조정(불리한 방향 1% 이내), 새 계획이 이전 미제출 주문을 대체, 비상 정지(`autopilot halt`). 사람 승인 방식은 `auto_approve_modes`에서 live를 빼면 돌아옵니다.

@@ -43,6 +43,10 @@ monitors:
   sentiment_radar:
     days: [mon, tue, wed, thu, fri]
     time: "16:00"
+  # 승인된 주문 제출 (live): 07:30 파이프라인이 승인한 주문과 분할 주문의 당일분을 장 시작 직후 낸다
+  order_submit:
+    days: [mon, tue, wed, thu, fri]
+    time: "09:05"
   # 미체결 주문 점검 (§15: 미체결 3거래일 후 취소)
   stale_orders:
     days: [mon, tue, wed, thu, fri]

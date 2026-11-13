@@ -130,6 +130,21 @@ def cmd_orders(args):
         _print(orch.sync_orders())
 
 
+def cmd_halt(args):
+    """비상 정지: 자동 승인과 주문 제출을 즉시 멈춘다. 이미 낸 주문은 취소하지 않는다."""
+    from autopilot_korea.settings import get_settings
+
+    path = get_settings().halt_file
+    if args.action == "halt":
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"{date.today().isoformat()} {args.reason or ''}\n", encoding="utf-8")
+        print(f"비상 정지를 켰습니다 ({path}). 자동 승인과 주문 제출이 멈춥니다. 다시 켜려면: autopilot resume")
+        print("이미 제출된 미체결 주문은 그대로입니다. 필요하면 토스증권 앱에서 취소하십시오.")
+    else:
+        path.unlink(missing_ok=True)
+        print("비상 정지를 해제했습니다. 다음 스케줄부터 자동 매매가 다시 동작합니다.")
+
+
 def cmd_backtest(args):
     from autopilot_korea.backtest import BacktestConfig, PriceBook, run_backtest
     from autopilot_korea.backtest.strategies import PipelineStrategy, control_groups, estimate_llm_calls, sweep_strategies
@@ -198,6 +213,10 @@ def main(argv: list[str] | None = None) -> None:
     sp.add_argument("--by", help="승인자 이름 (감사 기록)")
     sp.add_argument("--limit", type=int, default=50)
     sp.set_defaults(fn=cmd_orders)
+    sp = sub.add_parser("halt", help="비상 정지 — 자동 승인·주문 제출 중단")
+    sp.add_argument("--reason")
+    sp.set_defaults(fn=cmd_halt, action="halt")
+    sub.add_parser("resume", help="비상 정지 해제").set_defaults(fn=cmd_halt, action="resume", reason=None)
     sp = sub.add_parser("backtest", help="백테스트 (§14)")
     sp.add_argument("--start", required=True)
     sp.add_argument("--end", required=True)

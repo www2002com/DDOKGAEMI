@@ -2,8 +2,14 @@
 
 모드별 동작:
   - dry_run: 주문을 제안 상태로 저장만 한다. 절대 제출하지 않는다.
-  - paper:   auto_approve_modes에 있으면 자동 승인 후 모의 브로커로 제출한다 (needs_review 주문은 제외).
-  - live:    토스증권으로 제출한다. 설정과 무관하게 사람의 승인(autopilot orders approve)이 있어야 한다.
+  - paper:   auto_approve_modes에 있으면 자동 승인 후 모의 브로커로 바로 제출한다.
+  - live:    auto_approve_modes에 있으면 자동 승인한다(2026-11-13 사용자 결정으로 완전 자동 매매).
+             단, 실행 1회의 주문 수·총액이 점검 한도를 넘으면 사람 검토로 넘긴다.
+             제출은 거래일 정규장 시간에만 하고, 제출 직전 현재 호가로 지정가를 다시 맞춘다(허용 폭 안에서).
+             목록에 live가 없으면 사람의 승인(autopilot orders approve)이 있어야 한다.
+공통: Stage 5 검토가 Cancel로 판정한 주문(needs_review)은 자동 승인하지 않는다.
+비상 정지(`autopilot halt`)가 켜져 있으면 모든 모드에서 자동 승인과 제출을 멈춘다.
+새 실행이 주문을 제안하면 이전 실행의 미제출 주문은 superseded로 바뀐다(이중 주문 방지).
 §15: 미체결 주문은 제출 후 3거래일이 지나면 취소한다.
 """
 
@@ -18,8 +24,8 @@ from sqlalchemy import select
 from autopilot_korea.compliance import with_disclaimer
 from autopilot_korea.db import Database
 from autopilot_korea.db.models import Order
-from autopilot_korea.execution.base import Broker, OrderRequest
-from autopilot_korea.execution.calendar import TradingCalendar
+from autopilot_korea.execution.base import Broker, OrderRequest, snap_price
+from autopilot_korea.execution.calendar import TradingCalendar, now_kst
 from autopilot_korea.risk import PlannedOrder
 from autopilot_korea.settings import Settings
 
@@ -47,17 +53,40 @@ class OrderManager:
                 ids.append(order.id)
         return ids
 
-    def auto_approve(self, run_id: str) -> int:
-        """paper 모드 전용 자동 승인. live는 어떤 설정으로도 자동 승인하지 않는다."""
-        mode = self.settings.mode
-        if mode == "live" or mode not in self.settings.constraints.execution.auto_approve_modes:
+    def supersede_pending(self, run_id: str) -> int:
+        """새 계획이 이전 계획을 대체한다: 다른 실행의 제출 전 주문(proposed·approved)을 superseded로 바꾼다."""
+        with self.db.session() as s:
+            rows = s.scalars(select(Order).where(Order.run_id != run_id, Order.status.in_(("proposed", "approved")))).all()
+            for o in rows:
+                o.status, o.error = "superseded", f"{run_id} 실행의 새 주문 계획으로 대체"
+            return len(rows)
+
+    def auto_approve(self, run_id: str, nav: float = 0.0) -> int:
+        """auto_approve_modes에 있는 모드에서 자동 승인한다. live는 점검 한도 안일 때만 승인한다."""
+        mode, ex = self.settings.mode, self.settings.constraints.execution
+        if self.settings.halted() or mode == "dry_run" or mode not in ex.auto_approve_modes:
             return 0
         with self.db.session() as s:
             rows = s.scalars(select(Order).where(Order.run_id == run_id, Order.status == "proposed",
                                                  Order.needs_review.is_(False))).all()
+            if mode == "live" and (reason := self._live_gate(rows, nav)):
+                for o in rows:
+                    o.needs_review, o.error = True, f"자동 승인 보류 — 사람 검토 필요: {reason}"
+                log.warning("live 자동 승인 보류 (%s): %s", run_id, reason)
+                return 0
             for o in rows:
                 o.status, o.approved_by = "approved", f"auto:{mode}"
             return len(rows)
+
+    def _live_gate(self, rows: list[Order], nav: float) -> str | None:
+        """실계좌 자동 승인 전 마지막 점검. 비정상적으로 큰 주문 묶음은 사람이 보게 한다."""
+        ex = self.settings.constraints.execution
+        if len(rows) > ex.live_auto_max_orders:
+            return f"주문 {len(rows)}건 > 한도 {ex.live_auto_max_orders}건"
+        gross = sum(o.quantity * (o.price_limit or 0) for o in rows)
+        if nav <= 0 or gross > ex.live_auto_max_gross_pct * nav:
+            return f"주문 총액 {gross:,.0f}원 > 계좌 평가액 {nav:,.0f}원의 {ex.live_auto_max_gross_pct:.0%}"
+        return None
 
     def approve(self, order_ids: list[int], approver: str) -> int:
         with self.db.session() as s:
@@ -73,9 +102,14 @@ class OrderManager:
                 o.status, o.approved_by = "rejected", approver
             return len(rows)
 
-    def submit_approved(self, today: date) -> dict[str, int]:
+    def submit_approved(self, today: date, now: datetime | None = None) -> dict[str, int]:
+        ex = self.settings.constraints.execution
         if self.settings.mode == "dry_run":
             return {"submitted": 0, "skipped_dry_run": 1}
+        if self.settings.halted():
+            return {"submitted": 0, "halted": 1}
+        if self.settings.mode == "live" and not self.calendar.is_market_open(now or now_kst(), ex.market_open, ex.market_close):
+            return {"submitted": 0, "deferred_until_market_open": 1}  # 장 시간 제출 작업(09:05)이 낸다
         result = {"submitted": 0, "failed": 0}
         with self.db.session() as s:
             rows = s.scalars(select(Order).where(Order.status == "approved").order_by(Order.side.desc(), Order.id)).all()
@@ -83,6 +117,11 @@ class OrderManager:
             for o in rows:
                 if o.not_before and o.not_before > today:
                     continue
+                if self.settings.mode == "live":
+                    self._reprice(o)
+                    if o.quantity <= 0:
+                        o.status, o.error = "canceled", "지정가 재조정 후 수량 0"
+                        continue
                 try:
                     o.broker_order_id = self.broker.submit(OrderRequest(o.ticker, o.side, o.quantity, o.order_type,
                                                                         o.price_limit, o.client_order_id))
@@ -94,6 +133,32 @@ class OrderManager:
                     log.error("주문 제출 실패 %s %s: %s", o.ticker, o.side, exc)
         self.sync()
         return result
+
+    def _reprice(self, o: Order) -> None:
+        """장전에 정한 지정가를 제출 시점 최우선 호가로 다시 맞춘다. 허용 폭을 넘으면 계획가를 그대로 둔다.
+
+        매수는 수량을 줄여 계획 금액 안에 머문다 — 현금 부족으로 거부되지 않게 하기 위해서다.
+        """
+        if o.order_type != "LIMIT" or not o.price_limit:
+            return
+        try:
+            quote = self.broker.best_quote(o.ticker)
+        except Exception as exc:  # noqa: BLE001 — 호가가 없으면 계획가로 낸다
+            log.warning("호가 조회 실패 %s: %s", o.ticker, exc)
+            return
+        if not quote:
+            return
+        cap = self.settings.constraints.execution.live_reprice_max_pct
+        is_etf = o.ticker in self.settings.constraints.portfolio.cash_etf_tickers
+        if o.side == "BUY" and quote.get("ask"):
+            new = snap_price(float(quote["ask"]), "BUY", is_etf=is_etf)
+            if new <= o.price_limit * (1 + cap):
+                o.quantity = min(o.quantity, int(o.quantity * o.price_limit // new))
+                o.price_limit = new
+        elif o.side == "SELL" and quote.get("bid"):
+            new = snap_price(float(quote["bid"]), "SELL", is_etf=is_etf)
+            if new >= o.price_limit * (1 - cap):
+                o.price_limit = new
 
     def sync(self) -> int:
         updated = 0

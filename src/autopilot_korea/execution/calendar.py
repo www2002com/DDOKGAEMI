@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 from autopilot_korea.settings import Settings
+
+KST = ZoneInfo("Asia/Seoul")
+
+
+def now_kst() -> datetime:
+    return datetime.now(KST)
 
 
 class TradingCalendar:
@@ -17,6 +24,12 @@ class TradingCalendar:
 
     def is_trading_day(self, d: date) -> bool:
         return d.weekday() < 5 and d not in self.holidays
+
+    def is_market_open(self, now: datetime, open_hm: str = "09:00", close_hm: str = "15:20") -> bool:
+        """거래일의 정규장 주문 시간인가 (한국 시간)."""
+        local = now.astimezone(KST) if now.tzinfo else now.replace(tzinfo=KST)
+        start, end = (time(*map(int, hm.split(":"))) for hm in (open_hm, close_hm))
+        return self.is_trading_day(local.date()) and start <= local.time() < end
 
     def add_trading_days(self, d: date, n: int) -> date:
         while n > 0:

@@ -60,6 +60,11 @@ class RiskRules(BaseModel):
 
 class ExecutionRules(BaseModel):
     auto_approve_modes: list[str]
+    live_auto_max_orders: int
+    live_auto_max_gross_pct: float
+    live_reprice_max_pct: float
+    market_open: str
+    market_close: str
     default_order_type: str
     limit_offset_pct: float
     min_trade_value_krw: float
@@ -117,6 +122,14 @@ class Settings:
 
     def feature(self, name: str) -> bool:
         return bool(self.features.get(name, False))
+
+    @property
+    def halt_file(self) -> Path:
+        """비상 정지 스위치 파일. 있으면 자동 승인과 주문 제출을 모두 멈춘다 (`autopilot halt` / `autopilot resume`)."""
+        return self.project_root / "data" / "HALT"
+
+    def halted(self) -> bool:
+        return self.halt_file.exists() or os.environ.get("AUTOPILOT_HALT", "").strip() == "1"
 
     def validate(self) -> None:
         """시작 전에 운영 규칙 위반을 막는다 (§10 SELF_MODIFY 운영 금지)."""

@@ -119,22 +119,46 @@ def test_thesis_review_forces_exit(world):
     assert victim not in orch.broker.account().holdings
 
 
-def test_live_mode_never_auto_approves(world):
-    cfg, db, factsheets = world
-    live = dataclasses.replace(cfg, mode="live", toss_app_key="k", toss_app_secret="s")
-    live.constraints.execution.auto_approve_modes.append("live")  # 설정을 바꿔도 코드가 막아야 한다
-    try:
-        from autopilot_korea.execution.paper import PaperBroker
+def _live(cfg, modes):
+    rules = cfg.constraints.model_copy(deep=True)
+    rules.execution.auto_approve_modes = modes
+    return dataclasses.replace(cfg, mode="live", toss_app_key="k", toss_app_secret="s", constraints=rules)
 
-        orch = FixtureOrchestrator(live, db, llm=FakeLLM(), factsheets=factsheets,
-                                   broker=PaperBroker(live, db, lambda t: 10_000.0))
-        summary = orch.run_pipeline(as_of=AS_OF)
-        assert summary["stage5"]["auto_approved"] == 0
-        assert summary["stage5"]["awaiting_human_approval"] is True
-        with db.session() as s:
-            assert {o.status for o in s.scalars(select(Order)).all()} <= {"proposed", "blocked"}
-    finally:
-        live.constraints.execution.auto_approve_modes.remove("live")
+
+def test_live_mode_auto_trades_at_market_open(world, monkeypatch):
+    """live 완전 자동 매매(사용자 결정): 07:30 실행은 자동 승인만 하고, 장이 열리면 제출한다."""
+    from datetime import datetime
+
+    from autopilot_korea.execution import order_manager
+    from autopilot_korea.execution.calendar import KST
+    from autopilot_korea.execution.paper import PaperBroker
+
+    cfg, db, factsheets = world
+    live = _live(cfg, ["paper", "live"])
+    monkeypatch.setattr(order_manager, "now_kst", lambda: datetime(2026, 11, 12, 7, 30, tzinfo=KST))
+    orch = FixtureOrchestrator(live, db, llm=FakeLLM(), factsheets=factsheets, broker=PaperBroker(live, db, lambda t: 10_000.0))
+    summary = orch.run_pipeline(as_of=AS_OF)
+    assert summary["stage5"]["auto_approved"] == 15
+    assert summary["stage5"]["submitted"] == {"submitted": 0, "deferred_until_market_open": 1}
+    assert summary["stage5"]["awaiting_human_approval"] is False
+    result = orch.orders.submit_approved(AS_OF, now=datetime(2026, 11, 12, 9, 5, tzinfo=KST))
+    assert result["submitted"] == 15
+    with db.session() as s:
+        assert {o.approved_by for o in s.scalars(select(Order)).all()} == {"auto:live"}
+    assert len(orch.broker.account().holdings) == 15
+
+
+def test_live_mode_requires_human_when_live_not_listed(world):
+    from autopilot_korea.execution.paper import PaperBroker
+
+    cfg, db, factsheets = world
+    live = _live(cfg, ["paper"])
+    orch = FixtureOrchestrator(live, db, llm=FakeLLM(), factsheets=factsheets, broker=PaperBroker(live, db, lambda t: 10_000.0))
+    summary = orch.run_pipeline(as_of=AS_OF)
+    assert summary["stage5"]["auto_approved"] == 0
+    assert summary["stage5"]["awaiting_human_approval"] is True
+    with db.session() as s:
+        assert {o.status for o in s.scalars(select(Order)).all()} <= {"proposed", "blocked"}
 
 
 def test_rebalance_review_cancel_requires_human(world):

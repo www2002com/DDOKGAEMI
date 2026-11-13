@@ -54,8 +54,8 @@ def build_beat_schedule(cfg: dict[str, Any], crontab: Callable[..., Any]) -> dic
     d = mon["dart_major_reports"]
     add("dart-monitor", "autopilot.dart_monitor",
         crontab(minute=f"*/{d['every_minutes']}", hour=d["hours"], day_of_week=_days(d["days"])))
-    for key, task in (("sentiment_radar", "autopilot.sentiment_radar"), ("stale_orders", "autopilot.sync_orders"),
-                      ("nav_snapshot", "autopilot.snapshot_nav")):
+    for key, task in (("sentiment_radar", "autopilot.sentiment_radar"), ("order_submit", "autopilot.sync_orders"),
+                      ("stale_orders", "autopilot.sync_orders"), ("nav_snapshot", "autopilot.snapshot_nav")):
         h, m = _hm(mon[key]["time"])
         add(key.replace("_", "-"), task, crontab(minute=m, hour=h, day_of_week=_days(mon[key]["days"])))
     return sched
