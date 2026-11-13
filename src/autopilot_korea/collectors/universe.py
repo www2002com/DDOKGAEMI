@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from autopilot_korea.collectors.base import JOB_ROW, CollectorContext, upsert, utcnow
-from autopilot_korea.collectors.sources.market import KOSDAQ150, KOSPI200
+from autopilot_korea.collectors.sources.market import KOSDAQ150, KOSPI200, dept_flags
 from autopilot_korea.db.models import CollectionStatus, PriceData, StockMaster
 from autopilot_korea.sectors import classify_sector
 
@@ -56,6 +56,7 @@ def refresh_universe(ctx: CollectorContext) -> list[str]:
             settle = _value(info, "settle_month")
             master.settle_month = master.settle_month or (int(settle) if settle else None)
             master.in_kospi200, master.in_kosdaq150, master.is_cash_etf = in_k, in_q, False
+            master.risk_flags = dept_flags(_value(info, "dept"))  # KOREA_REGULATION 게이트 입력 (관리종목 등)
         for etf in ctx.settings.constraints.portfolio.cash_etfs:
             upsert(s, StockMaster, {"ticker": etf.ticker}, {"name": etf.name, "market": "ETF", "is_cash_etf": True,
                                                             "sector": CASH_SECTOR, "in_kospi200": False, "in_kosdaq150": False})

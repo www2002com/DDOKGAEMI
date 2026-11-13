@@ -161,7 +161,14 @@ def _collect_one(ctx: CollectorContext, ticker: str) -> None:
                 s.add(ShortInterest(ticker=ticker, date=d, **values))
 
 
+def _supports_short_selling(ctx: CollectorContext, ticker: str) -> bool:
+    try:
+        return ctx.market.short_selling(ticker, ctx.as_of, ctx.as_of) is not None
+    except Exception:  # noqa: BLE001 — 지원은 하지만 일시 오류다. run_job이 재시도·기록한다.
+        return True
+
+
 def collect(ctx: CollectorContext, tickers: list[str]) -> dict[str, Any]:
-    if not tickers or ctx.market.short_selling(tickers[0], ctx.as_of, ctx.as_of) is None:
+    if not tickers or not _supports_short_selling(ctx, tickers[0]):
         return skip_job(ctx, JOB, f"시세 원천({getattr(ctx.market, 'name', '?')})이 공매도 통계를 제공하지 않음 — KRX 로그인 필요", tickers)
     return run_job(ctx, JOB, _collect_one, tickers)

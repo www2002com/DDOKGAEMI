@@ -48,8 +48,14 @@ def compute_valuation_vars(summary: dict[str, Any], market_cap: float | None, cl
 def _snapshot(ctx: CollectorContext, ticker: str) -> None:
     from autopilot_korea.collectors.factsheet import build_factsheet, persist_factsheet  # 순환 import 방지
 
+    quote = None
+    if ctx.quotes is not None:
+        try:
+            quote = ctx.quotes.best_quote(ticker)
+        except Exception:  # noqa: BLE001 — 호가가 없으면 #21~#24만 비운다
+            quote = None
     with ctx.db.session() as s:
-        persist_factsheet(s, build_factsheet(s, ticker, ctx.as_of))
+        persist_factsheet(s, build_factsheet(s, ticker, ctx.as_of, quote))
 
 
 def collect(ctx: CollectorContext, tickers: list[str]) -> dict[str, Any]:

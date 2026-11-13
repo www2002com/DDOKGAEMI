@@ -244,3 +244,18 @@ def test_dry_run_never_submits(settings, db):
         for o in s.scalars(select(Order)):
             o.status = "approved"
     assert om.submit_approved(date(2026, 11, 12)) == {"submitted": 0, "skipped_dry_run": 1}
+
+
+# ── 관리종목 플래그 (FDR 소속부) ─────────────────────────────────────
+
+def test_dept_flags_and_index_approximation_excludes_managed():
+    import pandas as pd
+
+    from autopilot_korea.collectors.sources.market import dept_flags, top_by_market_cap
+
+    assert dept_flags("관리종목(소속부없음)") == ["관리종목"]
+    assert dept_flags("투자주의환기종목(소속부없음)") == ["투자주의환기종목"]
+    assert dept_flags("우량기업부") == [] and dept_flags(None) == []
+    listing = pd.DataFrame({"ticker": ["100010", "100020", "100030"], "name": ["가", "나", "다"], "market": ["KOSDAQ"] * 3,
+                            "market_cap": [3e12, 2e12, 1e12], "dept": ["관리종목(소속부없음)", "우량기업부", "벤처기업부"]})
+    assert top_by_market_cap(listing, "KOSDAQ", 2) == ["100020", "100030"]

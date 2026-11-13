@@ -4,6 +4,7 @@
 - 액면분할(#58·#59): DART 공시검색(거래소공시 I)에서 "주식분할결정"을 찾아 원문의 1주당 가액(분할 전 ÷ 분할 후)과
   신주권상장예정일을 파싱한다. 원문 파싱이 안 되면 price_data 상장주식수의 계단식 증가(≥1.5배)로 배수를 추정하고,
   날짜는 그 증가일(없으면 공시 접수일)로 둔다. 결과는 stock_master.corporate_actions에 저장한다.
+  첫 수집은 5년치를 보고, 이후에는 직전 성공일 7일 전부터 새 공시만 확인한다(결산월도 첫 수집 때만 조회).
 - #25 시가총액·#47 역산 주식수는 price_data, #52 최근 분기 기준일은 financial_data에서 팩트시트가 계산한다.
 """
 
@@ -16,11 +17,11 @@ from typing import Any
 import pandas as pd
 from sqlalchemy import select
 
-from autopilot_korea.collectors.base import CollectorContext, corp_code_for, run_job, skip_job
+from autopilot_korea.collectors.base import CollectorContext, as_utc, corp_code_for, run_job, skip_job
 from autopilot_korea.collectors.dividend_collector import parse_date, table_rows
 from autopilot_korea.collectors.financials_collector import _div
-from autopilot_korea.collectors.sources.dart import filed_date_from_rcept_no, parse_amount
-from autopilot_korea.db.models import PriceData, StockMaster
+from autopilot_korea.collectors.sources.dart import DartKeyError, DartRateLimitError, filed_date_from_rcept_no, parse_amount
+from autopilot_korea.db.models import CollectionStatus, PriceData, StockMaster
 
 JOB = "info"
 SPLIT_LOOKBACK_YEARS = 5
@@ -88,14 +89,20 @@ def split_from_share_jump(shares: pd.Series, since: date) -> tuple[float | None,
     return round(float(jumps.iloc[0]), 2), jumps.index[0]
 
 
-def _collect_splits(ctx: CollectorContext, ticker: str, corp_code: str) -> list[dict[str, Any]]:
-    start = ctx.as_of - timedelta(days=365 * SPLIT_LOOKBACK_YEARS)
-    items = ctx.dart.list_disclosures(start, ctx.as_of, pblntf_ty="I", corp_code=corp_code)
-    actions = []
+def _collect_splits(ctx: CollectorContext, ticker: str, corp_code: str, since: date,
+                    known: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """since 이후 접수된 주식분할결정을 known(이미 저장된 분할 목록)에 더한다."""
+    items = ctx.dart.list_disclosures(since, ctx.as_of, pblntf_ty="I", corp_code=corp_code)
+    actions = [a for a in known if a.get("type") == "split"]
+    seen = {a.get("rcept_no") for a in actions}
     for item in sorted((i for i in items if "주식분할결정" in i.get("report_nm", "")), key=lambda i: i["rcept_no"]):
+        if item["rcept_no"] in seen:
+            continue
         filed = filed_date_from_rcept_no(item["rcept_no"])
         try:
             parsed = parse_split_decision(ctx.dart.document(item["rcept_no"]))
+        except (DartKeyError, DartRateLimitError):
+            raise
         except Exception:  # noqa: BLE001 — 원문이 없거나 형식이 달라도 상장주식수로 추정한다
             parsed = {"factor": None, "date": None}
         if parsed["factor"] is None and filed:
@@ -116,17 +123,26 @@ def _collect_one(ctx: CollectorContext, ticker: str) -> None:
     corp_code = corp_code_for(ctx, ticker)
     if not corp_code:
         raise RuntimeError(f"DART 고유번호를 찾지 못했습니다: {ticker}")
-    company = ctx.dart.company(corp_code)
-    settle = int(company["acc_mt"]) if str(company.get("acc_mt", "")).isdigit() else None
-    splits = _collect_splits(ctx, ticker, corp_code)
     with ctx.db.session() as s:
         master = s.get(StockMaster, ticker)
         if master is None:
-            return
+            raise RuntimeError(f"stock_master에 없는 종목입니다: {ticker}")
+        known = list(master.corporate_actions or [])
+        status = s.scalars(select(CollectionStatus).where(CollectionStatus.job == JOB, CollectionStatus.ticker == ticker)).first()
+        last_ok = as_utc(status.last_success_at).date() if status and status.last_success_at else None
+        need_settle = last_ok is None or master.settle_month is None
+    # 첫 수집은 5년치, 이후에는 직전 성공일 7일 전부터만 공시를 다시 본다.
+    since = min(last_ok - timedelta(days=7), ctx.as_of) if last_ok else ctx.as_of - timedelta(days=365 * SPLIT_LOOKBACK_YEARS)
+    settle = None
+    if need_settle:
+        acc_mt = str(ctx.dart.company(corp_code).get("acc_mt", ""))
+        settle = int(acc_mt) if acc_mt.isdigit() else None
+    splits = _collect_splits(ctx, ticker, corp_code, since, known)
+    with ctx.db.session() as s:
+        master = s.get(StockMaster, ticker)
         if settle:
             master.settle_month = settle
-        others = [a for a in master.corporate_actions or [] if a.get("type") != "split"]
-        master.corporate_actions = others + splits
+        master.corporate_actions = [a for a in master.corporate_actions or [] if a.get("type") != "split"] + splits
 
 
 def collect(ctx: CollectorContext, tickers: list[str]) -> dict[str, Any]:

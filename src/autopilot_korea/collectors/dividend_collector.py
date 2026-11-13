@@ -14,17 +14,18 @@ dividend_data에는 두 종류의 행이 있다.
 
 from __future__ import annotations
 
+import logging
 import re
 from datetime import date, timedelta
 from typing import Any
 
-from bs4 import BeautifulSoup
 from sqlalchemy import select
 
 from autopilot_korea.collectors.base import CollectorContext, corp_code_for, run_job, skip_job, upsert
-from autopilot_korea.collectors.sources.dart import filed_date_from_rcept_no, parse_amount
+from autopilot_korea.collectors.sources.dart import DartKeyError, DartRateLimitError, filed_date_from_rcept_no, parse_amount
 from autopilot_korea.db.models import DividendData
 
+log = logging.getLogger(__name__)
 JOB = "dividend"
 DATE_RE = re.compile(r"(\d{4})\s*[-./년]\s*(\d{1,2})\s*[-./월]\s*(\d{1,2})")
 EVENT_LOOKBACK_DAYS = 400
@@ -47,6 +48,8 @@ def parse_date(text: str | None) -> date | None:
 
 def table_rows(document: str) -> list[list[str]]:
     """공시 원문(HTML 또는 DART XML의 TR/TD/TE/TU)을 표 행 목록으로."""
+    from bs4 import BeautifulSoup  # 데이터 extra(beautifulsoup4·lxml) — 팩트시트만 쓰는 쪽은 필요 없다
+
     soup = BeautifulSoup(document, "lxml")
     rows = []
     for tr in soup.find_all("tr"):
@@ -157,7 +160,13 @@ def _store_annual(ctx: CollectorContext, ticker: str, corp_code: str) -> None:
 def _store_events(ctx: CollectorContext, ticker: str, corp_code: str) -> None:
     items = ctx.dart.list_disclosures(ctx.as_of - timedelta(days=EVENT_LOOKBACK_DAYS), ctx.as_of, pblntf_ty="I", corp_code=corp_code)
     for item in sorted((i for i in items if "배당결정" in i.get("report_nm", "")), key=lambda i: i["rcept_no"]):
-        parsed = parse_dividend_decision(ctx.dart.document(item["rcept_no"]))
+        try:
+            parsed = parse_dividend_decision(ctx.dart.document(item["rcept_no"]))
+        except (DartKeyError, DartRateLimitError):
+            raise
+        except Exception as exc:  # noqa: BLE001 — 원문 한 건이 없거나 형식이 달라도 나머지 이벤트는 저장한다
+            log.warning("배당결정 원문 파싱 실패 %s %s: %s", ticker, item["rcept_no"], exc)
+            continue
         if parsed["record_date"] is None or parsed["dps"] is None:
             continue
         filed = filed_date_from_rcept_no(item["rcept_no"])

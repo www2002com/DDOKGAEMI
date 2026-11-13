@@ -44,7 +44,9 @@ uv pip install -e ".[data,scheduler,dev]"
 cp .env.example .env
 ```
 
-`.env`에 최소한 `ANTHROPIC_API_KEY`와 `DART_API_KEY`를 넣습니다. 시세는 `KRX_ID`/`KRX_PW`(KRX 정보데이터시스템 회원)가 있으면 pykrx로, 없으면 FinanceDataReader로 받습니다. 공매도 통계는 KRX 로그인이 있어야 수집됩니다.
+`.env`에 최소한 `ANTHROPIC_API_KEY`와 `DART_API_KEY`를 넣습니다. 시세는 `KRX_ID`/`KRX_PW`(KRX 정보데이터시스템 회원)가 있으면 pykrx로, 없으면 FinanceDataReader로 받습니다. 공매도 통계와 실제 지수 구성종목은 KRX 로그인이 있어야 받을 수 있습니다(없으면 시총 상위로 근사).
+
+키가 없을 때 97개 변수 중 무엇이 채워지는지는 원천에 따라 다릅니다. 키 없이 실데이터로 점검했을 때 36개(시세·모멘텀·컨센서스·밸류에이션 일부)가 채워졌습니다. DART 키를 넣으면 재무·배당·지배구조가, KRX 로그인을 넣으면 공매도 변수가 채워집니다.
 
 ```bash
 autopilot init-db

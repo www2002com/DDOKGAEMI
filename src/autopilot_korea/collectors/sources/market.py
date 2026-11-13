@@ -15,18 +15,29 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from datetime import date, timedelta
 from typing import Any, Protocol
 
 import pandas as pd
 
+log = logging.getLogger(__name__)
+
 KOSPI200 = "KOSPI200"
 KOSDAQ150 = "KOSDAQ150"
 PYKRX_INDEX_CODES = {KOSPI200: "1028", KOSDAQ150: "2203"}
 APPROX_TOP_N = {KOSPI200: ("STK", 200), KOSDAQ150: ("KSQ", 150)}
 OHLCV_COLUMNS = ["open", "high", "low", "close", "volume", "trading_value", "market_cap", "shares"]
-LISTING_COLUMNS = ["ticker", "name", "market", "industry", "settle_month", "market_cap", "shares", "close"]
+LISTING_COLUMNS = ["ticker", "name", "market", "industry", "settle_month", "market_cap", "shares", "close", "dept"]
+
+# KRX 소속부(FDR "Dept") 표기 → 시스템 표준 risk_flags. 지수 편입 규칙도 이 종목들을 제외한다.
+DEPT_FLAGS = {"관리종목": "관리종목", "투자주의환기": "투자주의환기종목"}
+
+
+def dept_flags(dept: Any) -> list[str]:
+    text = "" if dept is None or (isinstance(dept, float) and pd.isna(dept)) else str(dept)
+    return sorted(flag for key, flag in DEPT_FLAGS.items() if key in text)
 FDR_CACHE_URL = "https://raw.githubusercontent.com/FinanceData/fdr_krx_data_cache/refs/heads/master/data/listing/krx/{d}.csv"
 
 
@@ -73,9 +84,11 @@ def _to_date_index(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def top_by_market_cap(listing: pd.DataFrame, market: str, n: int) -> list[str]:
-    """시총 상위 n개 보통주(티커 끝자리 0, 스팩 제외). 지수 구성종목 근사용."""
+    """시총 상위 n개 보통주(티커 끝자리 0, 스팩·관리종목·투자주의환기종목 제외). 지수 구성종목 근사용."""
     df = listing[(listing["market"] == market) & listing["ticker"].str.endswith("0")]
     df = df[~df["name"].astype(str).str.contains("스팩")]
+    if "dept" in df.columns:
+        df = df[~df["dept"].map(dept_flags).astype(bool)]
     return df.sort_values("market_cap", ascending=False)["ticker"].head(n).tolist()
 
 
@@ -139,7 +152,11 @@ class FdrSource:
 
     def _marcap_listing(self, as_of: date) -> pd.DataFrame:
         """시총이 채워진 KRX 상장 목록. 장중에는 FDR 캐시의 당일 파일이 비어 있어 직전 영업일 파일로 내려간다."""
-        df = self.fdr.StockListing("KRX")
+        try:
+            df = self.fdr.StockListing("KRX")
+        except Exception as exc:  # noqa: BLE001 — KRX 응답이 깨지면(비JSON 등) 캐시 파일로 내려간다 (§15 폴백)
+            log.warning("FDR 실시간 상장 목록 실패, 직전 영업일 캐시로 대체: %s", exc)
+            df = None
         if df is not None and len(df) and df["Marcap"].notna().mean() > 0.5:
             return df
         for back in range(1, 8):
@@ -163,6 +180,7 @@ class FdrSource:
             "market_cap": pd.to_numeric(cap["Marcap"], errors="coerce"),
             "shares": pd.to_numeric(cap["Stocks"], errors="coerce"),
             "close": pd.to_numeric(cap["Close"], errors="coerce"),
+            "dept": cap["Dept"].astype(str) if "Dept" in cap.columns else None,  # 소속부 — 관리종목 표시 포함
         })
         try:
             desc = self.fdr.StockListing("KRX-DESC")

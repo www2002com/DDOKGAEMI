@@ -26,7 +26,6 @@ from datetime import date
 from typing import Any
 
 import requests
-from bs4 import BeautifulSoup
 
 URL = "https://wcomp.fnguide.com/CompanyInfo/Consensus"
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
@@ -49,7 +48,7 @@ def rec_key(rec_mean: float | None) -> str | None:
     return "sell"
 
 
-def _broker_rows(soup: BeautifulSoup) -> tuple[list[float | None], list[dict[str, Any]]]:
+def _broker_rows(soup: Any) -> tuple[list[float | None], list[dict[str, Any]]]:
     """(Consensus 행 [평균 적정주가, 평균 투자의견], 증권사별 행 목록)."""
     for table in soup.find_all("table"):
         caption = table.find("caption")
@@ -109,6 +108,8 @@ def forward_12m_eps(estimates: list[tuple[date, float]], as_of: date) -> float |
 
 def parse_consensus_html(html: str, as_of: date) -> dict[str, Any]:
     """FnGuide 컨센서스 페이지 → ConsensusData 필드."""
+    from bs4 import BeautifulSoup
+
     soup = BeautifulSoup(html, "lxml")
     (mean_target, mean_score), brokers = _broker_rows(soup)
     targets = [b["target"] for b in brokers if b["target"]]

@@ -17,7 +17,7 @@ dependencies = [
 
 [project.optional-dependencies]
 # 데이터 레이어(§4): pykrx는 KRX 로그인(KRX_ID/KRX_PW)이 필요하다. FinanceDataReader는 로그인 없는 대체 원천이다.
-data = ["pykrx>=1.2.9", "finance-datareader>=0.9"]
+data = ["pykrx>=1.2.9", "finance-datareader>=0.9", "beautifulsoup4>=4.12", "lxml>=5.0"]
 # 스케줄러(§4.3, §13)
 scheduler = ["celery[redis]>=5.3"]
 # 운영 DB(§4.3)
@@ -35,9 +35,12 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [tool.setuptools.package-data]
-autopilot_korea = ["agents/prompts/prompts_kr/*.md", "agents/prompts/prompts_kr/*.json"]
+autopilot_korea = ["agents/prompts/prompts_kr/*.md", "agents/prompts/prompts_kr/*.json", "collectors/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
 addopts = "-q"
+markers = [
+    "live: 실제 외부 원천(FDR·FnGuide·네이버·ECOS 등)을 호출하는 테스트. AUTOPILOT_LIVE_TESTS=1일 때만 실행",
+]
