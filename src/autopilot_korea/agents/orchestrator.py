@@ -255,14 +255,16 @@ class Orchestrator:
 
     def propose_orders(self, ctx: PipelineContext, plan: RebalancePlan, account: AccountSnapshot,
                        target: TargetPortfolio) -> dict[str, Any]:
-        flags = {}
-        for o in plan.orders:
-            if o.ticker not in flags:
-                try:
-                    flags[o.ticker] = self.broker.regulatory_flags(o.ticker)
-                except Exception as exc:  # noqa: BLE001 — 조회 실패 시 매수는 막는다(보수적)
-                    flags[o.ticker] = ["규제상태_조회실패"] if o.side == "BUY" else []
-                    log.warning("규제 상태 조회 실패 %s: %s", o.ticker, exc)
+        tickers = sorted({o.ticker for o in plan.orders})
+        with self.db.session() as s:  # 수집 단계가 기록한 상태(관리종목 등)
+            flags = {m.ticker: list(m.risk_flags or []) for m in s.scalars(select(StockMaster).where(StockMaster.ticker.in_(tickers)))}
+        for t in tickers:
+            try:  # 브로커의 실시간 상태(투자경고·거래정지·VI 등)
+                flags[t] = sorted(set(flags.get(t, [])) | set(self.broker.regulatory_flags(t)))
+            except Exception as exc:  # noqa: BLE001 — 조회 실패 시 매수는 막는다(보수적)
+                if any(o.ticker == t and o.side == "BUY" for o in plan.orders):
+                    flags[t] = sorted(set(flags.get(t, [])) | {"규제상태_조회실패"})
+                log.warning("규제 상태 조회 실패 %s: %s", t, exc)
         pre_execution_gate(plan.orders, self.settings, flags)
         ids = self.orders.propose(ctx.run_id, plan.orders)
         approved = self.orders.auto_approve(ctx.run_id)
@@ -346,7 +348,14 @@ class Orchestrator:
         return payload
 
     def snapshot_nav(self, as_of: date | None = None, benchmark_close: float | None = None) -> dict[str, Any]:
+        """일별 NAV·포지션 스냅샷 (§8-5). KOSPI200 종가를 함께 기록해 벤치마크 대비 성과를 본다."""
         as_of = as_of or aux_agents.today_kst()
+        if benchmark_close is None:
+            try:
+                closes = self.market().index_closes(as_of - timedelta(days=7), as_of)
+                benchmark_close = float(closes.iloc[-1]) if len(closes) else None
+            except Exception as exc:  # noqa: BLE001 — 벤치마크가 없어도 NAV는 기록한다
+                log.warning("KOSPI200 종가 조회 실패: %s", exc)
         account = self.broker.account()
         positions = {t: {"qty": h.quantity, "price": h.last_price, "value": h.market_value} for t, h in account.holdings.items()}
         with self.db.session() as s:

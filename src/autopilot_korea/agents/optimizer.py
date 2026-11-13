@@ -163,7 +163,10 @@ def fallback_portfolio(candidates: dict[str, Candidate], rules: Constraints, *, 
     weights = capped_allocation(raw, 1.0 - cash_target, p.max_position_weight,
                                 {c.ticker: c.sector for c in chosen}, p.max_sector_weight)
     cash = min(1.0 - sum(weights.values()), p.max_cash_etf_weight)  # 초과분은 미투자 현금으로 남는다
-    cash_etf = next((c.ticker for c in candidates.values() if c.is_cash_etf), None)
+    cash_list = [c for c in candidates.values() if c.is_cash_etf]
+    held_cash = [c for c in cash_list if c.current_weight > 0]  # 이미 보유한 현금성 ETF를 유지해 불필요한 교체를 막는다
+    cash_etf = (held_cash or cash_list or [None])[0]
+    cash_etf = cash_etf.ticker if cash_etf else None
     if cash_etf and cash > EPS:
         weights[cash_etf] = cash
     return weights
@@ -211,6 +214,8 @@ def optimize(ctx: PipelineContext, candidates: dict[str, Candidate], holdings_su
         for pos in out.positions:
             weights[pos.ticker] = weights.get(pos.ticker, 0.0) + pos.weight
         violations = validate(weights, candidates, rules, drawdown_review=ctx.drawdown_review)
+        if len(weights) != len(out.positions):
+            violations.append("같은 종목이 두 번 이상 나옵니다 — 종목당 한 줄로 합치십시오")
         if not violations:
             positions = [_position(candidates, pos.ticker, pos.weight, pos.thesis, pos.falsification, pos.edge, pos.risk)
                          for pos in out.positions]

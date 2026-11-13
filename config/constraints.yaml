@@ -28,11 +28,12 @@ risk:
   position_thesis_review: -0.25         # 종목 -25% → thesis 재평가 플래그
   liquidity_exclude_bottom_pct: 0.10    # 20일 평균 거래대금 하위 10% 유니버스 제외
   max_order_pct_of_adv: 0.05            # 일 목표 거래대금(20일 평균)의 5% 초과 주문은 분할
-  blocked_flags:                        # 실행 전 게이트에서 주문을 막는 risk_flags
+  blocked_flags:                        # 실행 전 게이트에서 매수를 막는 risk_flags (거래정지는 매도도 막는다)
     - 거래정지
     - 관리종목
     - 투자위험
     - 정리매매
+    - 규제상태_조회실패                   # live에서 토스증권 규제 상태를 확인하지 못하면 매수하지 않는다
 
 execution:
   # 사람 승인 없이 자동 승인할 모드. live는 이 값과 무관하게 코드가 항상 사람 승인을 요구한다 (§3.2 "인간이 최종 서명").
