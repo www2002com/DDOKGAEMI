@@ -1,0 +1,65 @@
+# 운영 케이던스 (§1, §4.3, §13). 시각은 모두 한국 시간.
+timezone: Asia/Seoul
+
+# 주 2회 전체 파이프라인 (Claude 실측 "twice a week, trades less often").
+# 장 시작 전에 실행해 직전 거래일 데이터로 판단하고, 승인된 주문은 정규장에서 낸다.
+pipeline:
+  full_run:
+    days: [mon, thu]
+    time: "07:30"
+
+collectors:
+  # 일 1회 장 마감 후: 시세·모멘텀·공매도 (+ 기본정보·뉴스)
+  daily_after_close:
+    days: [mon, tue, wed, thu, fri]
+    time: "18:00"
+    jobs: [price, momentum, short_interest, info, news]
+  # 주 1회 일요일: 밸류에이션·배당
+  weekly:
+    days: [sun]
+    time: "10:00"
+    jobs: [valuation, dividend]
+  # 분기 갱신: 정기보고서(사업·반기·분기) 공시 감지 시 해당 종목만 수집한다.
+  # 감지가 실패해도 누락되지 않도록 분기 첫 달 15일에 전체 수집을 한 번 더 한다.
+  quarterly:
+    trigger: dart_periodic_report
+    backstop_months: [1, 4, 7, 10]
+    backstop_day: 15
+    time: "20:00"
+    jobs: [financials, balance_sheet, governance]
+  # 월 1회: 컨센서스, 매크로 예측
+  monthly:
+    day_of_month: 1
+    time: "08:00"
+    jobs: [consensus, macro]
+
+monitors:
+  # DART 주요사항보고 모니터링 — Haiku 1차 분류 → 중요도 high면 Opus 재분석 → 해당 종목 즉시 재스코어링
+  dart_major_reports:
+    days: [mon, tue, wed, thu, fri]
+    hours: "7-20"
+    every_minutes: 30
+  # 커뮤니티 감성 레이더 (분석 전용, 페르소나 16·17·20)
+  sentiment_radar:
+    days: [mon, tue, wed, thu, fri]
+    time: "16:00"
+  # 미체결 주문 점검 (§15: 미체결 3거래일 후 취소)
+  stale_orders:
+    days: [mon, tue, wed, thu, fri]
+    time: "15:40"
+    cancel_after_trading_days: 3
+  # 일별 NAV·포지션 스냅샷 (§8)
+  nav_snapshot:
+    days: [mon, tue, wed, thu, fri]
+    time: "16:10"
+
+# 거래일 계산(미체결 3거래일 취소, 분할 주문 날짜)에 쓰는 KRX 휴장일. 주말은 자동 제외된다.
+holidays: ["2026-12-25", "2026-12-31", "2027-01-01"]
+
+# 실패 처리 (§15): 재시도 3회 → 직전 스냅샷 폴백(신선도 플래그) → 스킵
+retry:
+  attempts: 3
+  backoff_seconds: [2, 10, 30]
+circuit_breaker:
+  failure_threshold: 5        # 연속 실패 5회면 해당 원천을 차단한다
+  cooldown_seconds: 600

@@ -218,3 +218,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Autopilot Korea 런타임 데이터 (SQLite DB, 보고서, 캐시)
+data/

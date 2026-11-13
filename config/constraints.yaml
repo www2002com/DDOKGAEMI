@@ -1,0 +1,58 @@
+# 포트폴리오 구성 규칙(§5) · 리스크 관리 레이어(§7) · 집계 규칙(§3.4)
+# 여기의 값은 Stage 4 프롬프트와 코드 검증(optimizer.validate)에 동시에 쓰인다 (이중 강제).
+
+portfolio:
+  initial_capital_krw: 50000000        # §6 한국형 초기 프롬프트 "5,000만 원 포트폴리오"
+  benchmark: KOSPI200                   # 실측 "beat SPY" → KOSPI200
+  target_positions: 15                  # 주식 13~14 + 현금성 ETF 1~2
+  min_equity_positions: 13
+  max_position_weight: 0.10             # 종목당 최대 10% (자체 보완)
+  max_sector_weight: 0.35               # 실측 명시 "no sector > 35%"
+  max_cash_etf_weight: 0.20             # 현금성 ETF 최대 20%
+  require_positive_expected_return: true
+  tie_breaker: market_cap_desc          # 동점 시 시총 큰 종목
+  weight_tolerance: 0.005               # 비중 합계 1.0 허용 오차
+  cash_etfs:                            # MMF·초단기채·CD/KOFR 금리형 (FDR ETF 목록에서 확인)
+    - {ticker: "459580", name: "KODEX CD금리액티브(합성)"}
+    - {ticker: "357870", name: "TIGER CD금리투자KIS(합성)"}
+    - {ticker: "488770", name: "KODEX 머니마켓액티브"}
+    - {ticker: "423160", name: "KODEX KOFR금리액티브(합성)"}
+    - {ticker: "469830", name: "SOL 초단기채권액티브"}
+
+turnover:
+  monthly_cap: 0.30                     # 회전율 상한 (최근 30일 누적 단방향 회전율)
+
+risk:
+  portfolio_mdd_review: -0.15           # MDD -15% → 전체 재검토 + 현금성 비중 상향
+  drawdown_cash_target: 0.20            # 재검토 상태에서 현금성 ETF 목표 비중
+  position_thesis_review: -0.25         # 종목 -25% → thesis 재평가 플래그
+  liquidity_exclude_bottom_pct: 0.10    # 20일 평균 거래대금 하위 10% 유니버스 제외
+  max_order_pct_of_adv: 0.05            # 일 목표 거래대금(20일 평균)의 5% 초과 주문은 분할
+  blocked_flags:                        # 실행 전 게이트에서 주문을 막는 risk_flags
+    - 거래정지
+    - 관리종목
+    - 투자위험
+    - 정리매매
+
+execution:
+  # 사람 승인 없이 자동 승인할 모드. live는 이 값과 무관하게 코드가 항상 사람 승인을 요구한다 (§3.2 "인간이 최종 서명").
+  auto_approve_modes: [paper]
+  default_order_type: LIMIT
+  limit_offset_pct: 0.003           # 호가가 없을 때 종가 대비 지정가 여유 (매수 +, 매도 −)
+  min_trade_value_krw: 300000       # 이보다 작은 리밸런싱 거래는 만들지 않는다 (잦은 소액 거래 방지)
+  min_weight_change: 0.01           # 목표 비중과의 차이가 1%p 미만이면 거래하지 않는다
+  max_order_value_krw: 20000000     # 주문 1건 상한 (안전장치)
+  paper_commission_rate: 0.00015    # 모의 브로커 수수료
+  paper_sell_tax_rate: 0.002        # 모의 브로커 매도 거래세(농특세 포함)
+  paper_slippage_pct: 0.001
+
+pipeline:
+  news_window_days: 7                  # 최근 7일 뉴스만 유효 정보
+  screening_top_n: 50                   # Stage 1 상위 50종목
+  bull_agents: 15                       # Stage 2 불 케이스 에이전트 수
+  bear_agents: 15                       # Stage 2 베어 케이스 에이전트 수
+  scenario_agents: 15                   # Stage 3 동시 실행 에이전트 수 (종목당 1개)
+  scenario_max_candidates: 30           # Stage 3로 넘기는 최대 후보 수 (Stage 2 생존 종목 중 스코어 순)
+  optimizer_max_retries: 3              # Stage 4 제약 위반 시 재생성 횟수
+  swap_score_gap: 10                    # Stage 5: 보유 스코어가 신규 후보 최저 스코어보다 10점 이상 낮으면 스왑 검토
+  max_concurrency: 8                    # LLM 동시 호출 수

@@ -1,0 +1,29 @@
+# 페르소나 활성화·패널 구성 (§2, §17.1). 페르소나 본문은 prompts_kr/*.md (sha256 고정).
+persona_dir: src/autopilot_korea/agents/prompts/prompts_kr
+
+# 비활성화할 페르소나 id 목록. 비활성 페르소나가 아래 패널에 있으면 시작 시 오류를 낸다.
+disabled: []
+
+panels:
+  # 운영 승인 패널: 보유 종목 thesis 재평가(§7-2, -25% 플래그)와 단일 종목 리뷰에 쓴다.
+  operational: [07_value, 08_momentum, 09_contrarian, 11_disclosure, 21_adaptive_learner, 18_optimist, 19_pessimist]
+  # 감성 레이더 전용 (분석 전용 — 의사결정 단계에 넣으면 시작 시 오류)
+  sentiment_radar: [16_retail_sentiment, 17_news_sentiment, 20_theme_sentiment]
+  # 백테스트 통제군 (§14)
+  controls: [01_default, 04_minimal, 05_hold_llm]
+  # Stage 2 적대적 리서치: 불 15 vs 베어 15 (각 에이전트 = 페르소나 + 입장 지시 + 웹검색)
+  stage2_bull: [18_optimist, 07_value, 08_momentum, 10_growth, 12_dividend, 13_governance, 06_quant,
+                21_adaptive_learner, 22_flow, 23_sector_cycle, 02_macro, 03_allocator, 11_disclosure,
+                09_contrarian, 15_risk_manager]
+  stage2_bear: [19_pessimist, 09_contrarian, 14_short_seller, 15_risk_manager, 11_disclosure, 13_governance,
+                06_quant, 21_adaptive_learner, 22_flow, 23_sector_cycle, 02_macro, 03_allocator, 07_value,
+                08_momentum, 12_dividend]
+
+# 단계별 단일 페르소나
+stage_personas:
+  stage1_screening: 01_default
+  stage3_scenario: 01_default
+  stage4_optimizer: 03_allocator
+  stage5_review: 15_risk_manager
+  macro: 02_macro
+  dart_monitor: 11_disclosure
