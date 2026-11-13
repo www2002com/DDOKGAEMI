@@ -1,0 +1,28 @@
+{
+  "algorithm": "sha256",
+  "files": {
+    "01_default.md": "20ad4c5bab0e9e50fb575c713cc031f9b2baeb53e5aba81bb1db244ee706fa48",
+    "02_macro.md": "33a4ef733d9abbaed5db61a8d56bd28eb861d1ce9ce1aa12513a91b7375cc7bf",
+    "03_allocator.md": "84333290a9f1a2448aef0e1426e8aa539c7f85143921a8d456f3f890ff9702c9",
+    "04_minimal.md": "679c158bb4fd4fceea762483fba6828a2e8d9363b6061a39ef3606fe18782e46",
+    "05_hold_llm.md": "4d0857c04a78676a9438c619ce93f1c6704a2ba1711d467b2ccfc5dd71a0b826",
+    "06_quant.md": "609a55e86a120ffc4d326f90ccfab0691ec871e26fbcf8639a5e8c8ffb168262",
+    "07_value.md": "7fa636973ce102483b762159c29e59747485430c9231a3f45a1d785c0aed1fbc",
+    "08_momentum.md": "0bc1ce50badeecdf5ff717e5dca6d4b6eb129167ea864fe8d5766512573a062d",
+    "09_contrarian.md": "2386f4261ae2e7db7bbfdc8896c0a254724dcdf94d0ff700d1ec754e7c02d9bc",
+    "10_growth.md": "2827d0855fde8eddb681fa775629ad9be9c6d579470a03311d475c2737b45a1f",
+    "11_disclosure.md": "4272b95c05ea5ea7511cad0f8109981db75cd633c068470360520e31149b67e2",
+    "12_dividend.md": "58c35ee994b33bc82c1b711c520e8b3d404750f268f726e60c70e81e8a7f7c23",
+    "13_governance.md": "74707506f5763f85b40e5184221d6604a8497fe7e7a89ed81ac6a0ae047d4a62",
+    "14_short_seller.md": "15b25822f1cbd04926d302e253d7d1c893aec922598ce9f66c4d2d0d3f84aa28",
+    "15_risk_manager.md": "7a64ba0e11319f391bc053eef70823e14f8fe42829eea44101e251388b16b777",
+    "16_retail_sentiment.md": "39a5d8b5bbf42657db356e142f71961b4ebb6564c574a765b2e229a79c74b877",
+    "17_news_sentiment.md": "5a1f2b851a378275cb12c9d452d2d2f8d77b41cbf31af0e2667c4844316ed5e8",
+    "18_optimist.md": "fb1d393103ab56334ab00f47bcccace89f542e21e3344af7f89be44201680b1d",
+    "19_pessimist.md": "fe1ec2dbd3bf9bf5700ef49fa1eaa8cb029da43ab77b30475d269c984173a9fe",
+    "20_theme_sentiment.md": "0b7862cca9c99d6714f8438e69f2fa83301a0bb9c95609d7fa84126b6d155e00",
+    "21_adaptive_learner.md": "2e3a74b2a6cc6949c38f6a100bc7664b75adbe703392a4b7937dccad0324e3d0",
+    "22_flow.md": "1657f7937c77de107208b11fb9bbb295c2c9307e1e5eee8ea720cbe2a81f3a41",
+    "23_sector_cycle.md": "f9c969ec47f107bc7a7f6e50cd25b2d136b1deb68fd41b511a595dacc446723f"
+  }
+}

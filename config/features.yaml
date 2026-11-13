@@ -1,0 +1,10 @@
+# 기능 토글 (§10). 정의는 prompts_kr/README.md 참조.
+MEMORY: true            # 에이전트별 최근 메모 10개 주입
+SOCIAL: false           # 감성 레이더 결과를 참고 정보로 추가
+LAST_REASONING: true    # 같은 종목 직전 라운드 근거 주입
+SELF_MODIFY: false      # 운영 금지 — paper/live 모드에서 true면 시작을 거부한다
+CONFIDENCE: true        # 확신도(0~1) 출력, Stage 4 비중 산정에 사용
+SECOND_ORDER: true      # 2차적 사고(edge) 요구
+KOREA_REGULATION: true  # 한국 규제 점검 지시 + 실행 전 게이트
+
+memory_notes_limit: 10
